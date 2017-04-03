@@ -4,6 +4,10 @@ import argparse
 import os
 import subprocess
 
+#TODO: add option for ignored dirs
+#TODO: add option for allowed extensions
+#TODO: add option to read config from file
+
 def parse_args():
   parser = argparse.ArgumentParser(description='Format sources')
   parser.add_argument('path', action='store',
