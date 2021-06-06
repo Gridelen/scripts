@@ -6,6 +6,7 @@ import os
 import sys
 import hashlib
 import argparse
+from pathlib import Path
 
 # read in chunks not to overuse memory
 BUF_SIZE = 65536
@@ -20,6 +21,7 @@ def parse_args():
                         help='ignore files less than min size (bytes), default: %(default)s (2 MiB)', default=2 * 1024 * 1024)
     parser.add_argument('--exclude',
                         help="directories that shouldn't be analyzed, comma-separated")
+    parser.add_argument('--name-only', help='search for the same names instead of contents hash', action='store_true')
     return parser.parse_args()
 
 
@@ -39,15 +41,32 @@ def get_duplicates(file_info, input_dir, min_file_size):
         paths = []
         for p in pairs:
             if file_size >= 0:
-                if p[1] != file_size:
-                    print(
-                        sys.stderr, "Warning: Same hash but different size -", pairs[0][0], p[0])
+                if type(k) is not str and p[1] != file_size:
+                    print("Warning: Same hash but different size -",
+                          pairs[0][0], p[0])
             else:
                 file_size = p[1]
             paths.append(os.path.relpath(p[0], input_dir))
         if len(paths) > 1 and file_size >= min_file_size:
             duplicates.append((file_size, paths))
     return duplicates
+
+
+def compute_hash(file_path):
+    file_size = 0
+    hasher = hashlib.sha1()
+    try:
+        with open(file_path, 'rb') as f:
+            while True:
+                data = f.read(BUF_SIZE)
+                if not data:
+                    file_size = f.tell()
+                    break
+                hasher.update(data)
+    except Exception as e:
+        print(sys.stderr, 'Error:', e)
+        return None, 0
+    return hasher.hexdigest(), file_size
 
 
 def main():
@@ -63,24 +82,18 @@ def main():
         dirs[:] = [d for d in dirs if d not in exclude_dirs]
         for name in files:
             file_path = os.path.join(root, name)
-            hasher = hashlib.sha1()
             file_size = 0
-            print(f"\x1b[KAnalyzing file: {file_path}", end='\r', flush=True)
-            try:
-                with open(file_path, 'rb') as f:
-                    while True:
-                        data = f.read(BUF_SIZE)
-                        if not data:
-                            file_size = f.tell()
-                            break
-                        hasher.update(data)
-            except Exception as e:
-                print(sys.stderr, 'Error:', e)
+            print(f"\x1b[KAnalyzing file: {name}", end='\r', flush=True)
+            if args.name_only:
+                key = name
+                file_size = Path(file_path).stat().st_size
+            else:
+                key, file_size = compute_hash(file_path)
+            if key is None:
                 continue
-            digest = hasher.hexdigest()
-            if digest not in file_info:
-                file_info[digest] = []
-            file_info[digest].append((file_path, file_size))
+            if key not in file_info:
+                file_info[key] = []
+            file_info[key].append((file_path, file_size))
             total_files += 1
 
     print('\nProcessed', total_files, 'files.')
